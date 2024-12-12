@@ -1,4 +1,6 @@
 from pydantic import BaseModel
+from data.entity import Entity
 
-class Tools(BaseModel):
-    pass
+class Tool(BaseModel):
+    description: str
+    parameters: Entity
