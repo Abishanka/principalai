@@ -13,10 +13,10 @@ class AgentRegistry(BaseModel):
         agent: Agent
     ):
         """Add an agent to the registry"""
-        if agent.name in self.__agents:
-            raise AlreadyExistsError(f'''{agent.name} already exists in this registry. Please change the agent name or remove 
+        if agent.attributes.name in self.__agents:
+            raise AlreadyExistsError(f'''{agent.name} already exists in this registry instance. Please change the agent name or remove 
                                      the agent with the same name.''')
-        self.__agents[agent.name] = agent
+        self.__agents[agent.attributes.name] = agent
 
     def get_registered_agents(self):
         """Get a list of agents registered"""
