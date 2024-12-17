@@ -1,138 +1,108 @@
 from pydantic import BaseModel, ValidationError
 from typing import Optional, Callable
-import requests
 from warnings import warn
+import requests
 
-from principalai_core.invocable.core import Invocable, FunctionInvocable
-from principalai_core.data.models.core import Entity
+from principalai_core.invocable import Invocable, FunctionInvocable
+from principalai_core.data import Entity
 from principalai_core.utils.errors import (
     IncorrectDefinitonError,
-    DoesNotExistError,
     HttpRequestError
 )
+from principalai_core.utils.parsers import defaultApiToolInputParser
 from principalai_core.utils.http import HttpRequestType
 
 class Tool(Invocable):
     """Base class for Tool - Tools allow LLMs to perform actions outside of generation."""
     def __init__(
         self,
-        name_: str, 
-        description_: Optional[str] = None, 
-        inputParameterSchema_: Optional[BaseModel] = None, 
-        outputParameterSchema_: Optional[BaseModel] = None
+        name: str, 
+        description: Optional[str] = None, 
+        inputParameterSchema: Optional[BaseModel] = None, 
+        outputParameterSchema: Optional[BaseModel] = None
     ):
-        super().__init__(inputParameterSchema_, outputParameterSchema_)
-        self.attributes: Entity = Entity(name_, description_)
+        super().__init__(inputParameterSchema, outputParameterSchema)
+        self.attributes: Entity = Entity(name, description)
 
 class FunctionTool(Tool, FunctionInvocable):
-    """Tools that are implemented as functions."""
+    """
+    Tools that are implemented as functions.
+
+    FunctionTool can be implemented using @Decorators
+
+    @FunctionTool("Hello World Tool")
+    def function_tool_function():
+        "Tool that returns Hellow World"
+        return "Hello World"
+    """
     def __init__(
         self,
-        name_: str, 
-        description_: Optional[str] = None, 
-        inputParameterSchema_: Optional[BaseModel] = None,
-        outputParameterSchema_: Optional[BaseModel] = None, 
-        func_: Optional[Callable] = None
+        name: str, 
+        description: Optional[str] = None, 
+        inputParameterSchema: Optional[BaseModel] = None,
+        outputParameterSchema: Optional[BaseModel] = None, 
+        func: Optional[Callable] = None
     ):
-        super().__init__(name_, description_, inputParameterSchema_, outputParameterSchema_)
-        self.func = func_
-
+        super().__init__(name, description, inputParameterSchema, outputParameterSchema)
+        self.func = func
+    
     def __call__(
-        self, 
-        func_: Callable
+        self,
+        func: Callable
     ):
         """Function decorator"""
-        self.func = func_
+        self.func = func
         if self.attributes.description is None:
-            funcDocstring = func_.__doc__
+            funcDocstring = func.__doc__
             if funcDocstring is None:
                 raise IncorrectDefinitonError('''Function is missing Docstring. Please add a docstring to the function or 
-                                              initialize the tool without a decorator.''')
+                                              initialize the Invocable without a decorator.''')
             self.attributes.description = funcDocstring
         else:
             #Not really required but good to let the user know
-            if func_.__doc__ is not None:
-                warn('''Function Tool description provided as parameter and in function docstring. The parameter takes 
+            if func.__doc__ is not None:
+                warn('''Invocable description provided as parameter and in function docstring. The parameter takes 
                      precedence over the function docstring. In case both are same, you can safely remove the description 
                      parameter.''')
         return self
-    
-    def run(
-        self,
-        *args,
-        **kwargs
-    ):
-        if not self.func:
-            raise DoesNotExistError('''Function does not exist in Function Tool. Please check your code again to make sure that 
-                                    you're passing in a callable function during initialization.''')
-        runOutput = None
-        if self.inputParameterSchema is None:
-            try:
-                runOutput = self.func(*args, **kwargs)
-            except TypeError:
-                raise TypeError(f'Tool {self.name} was expecting no parameters. Please check the input schema provided and the function parameters.')
-            
-        else:
-            if self.inputParameterSchema is None:
-                warn('''Input parameter schema does not exist. To invoke a Function Tool with paramters, a pydantic 
-                     BaseModel schema or Entity list needs to be provided for input paramters.''')
-            try:
-                runOutput = self.func(*args, **kwargs)
-            except TypeError as e:
-                raise TypeError(f'Tool {self.name} was called with incorrect paramters: {e}.\nPlease check the input schema provided and the function parameters.')
-        return runOutput
 
-class ApiTool(Tool):
-    """Tools that are implemented as API Endpoints. When these tools are invoked, the API endpoint should be called."""
+class ApiTool(FunctionTool):
+    """
+    Tools that are implemented as API Endpoints. When these tools are invoked, the API endpoint is called.
+
+    ***
+    Requires Input and Output Parameter Schema. This is required to construct API call and Validate API response.
+    ***
+
+    ApiTool specific variables can be passed through the function body using @Decorators.
+
+    @ApiTool("somendpoint_API")
+    def api_tool_function():
+        "Tool to call someendpoint to get back some data"
+        return {
+            "apiEndpoint": "https://host.com:port/someendpoint"
+        }
+    """
     def __init__(
         self,
-        name_: str, 
-        description_: Optional[str] = None,
-        apiEndpoint_: Optional[str] = None,
-        httpRequestType_: Optional[HttpRequestType] = HttpRequestType.GET.name.lower(),
-        httpParameters_: dict = {}, #Dictionary to provide HTTP request parameters except for inputs
-        inputParameterSchema_: Optional[BaseModel] = None,
-        outputParameterSchema_: Optional[BaseModel] = None,
-        inputParameterParser_: Optional[Callable] = None #Custom parser. Can be used to put data into Url Paramter, Body, etc.
+        name: str,
+        inputParameterSchema: BaseModel,
+        outputParameterSchema: BaseModel,
+        description: Optional[str] = None,
+        apiEndpoint: Optional[str] = None,
+        httpRequestType: Optional[HttpRequestType] = HttpRequestType.GET.name.lower(),
+        httpParameters: dict = {}, #Dictionary to provide HTTP request parameters except for inputs
+        inputParameterParser: Optional[Callable] = None, #Custom parser. Can be used to put data into Url Paramter, Body, etc.
     ):
-        super().__init__(name_, description_, inputParameterSchema_, outputParameterSchema_)
+        super().__init__(name, description, inputParameterSchema, outputParameterSchema)
         self.func = None
-        self.apiEndpoint = apiEndpoint_
-        self.httpRequestType = httpRequestType_
-        self.httpParameters = httpParameters_
-        if inputParameterParser_ is None:
-            self.inputParameterParser = self.inputParameterParserFunc
+        self.apiEndpoint = apiEndpoint
+        self.httpRequestType = httpRequestType
+        self.httpParameters = httpParameters
+        if inputParameterParser is None:
+            self.inputParameterParser = defaultApiToolInputParser
         else:
-            self.inputParameterParser = inputParameterParser_
-    
-    def __call__(
-        self,
-        func_: Callable
-    ):
-        """
-        Function decorator
-        Allows for passing in ApiTool specific variables through the function body.
-
-        @ApiTool
-        def api_tool_function():
-            return {
-                "apiEndpoint_": "https://host.com:port/someendpoint"
-            }
-        """
-        self.func = func_    
-        if self.attributes.description is None:
-            funcDocstring = func_.__doc__
-            if funcDocstring is None:
-                raise IncorrectDefinitonError('''Function is missing Docstring. Please add a docstring to the function or 
-                                              initialize the tool without a decorator.''')
-            self.attributes.description = funcDocstring
-        else:
-            #Not really required but good to let the user know
-            if func_.__doc__ is not None:
-                warn('''Function Tool description provided as parameter and in function docstring. The parameter takes 
-                     precedence over the function docstring. In case both are same, you can safely remove the description 
-                     parameter.''')
-        return self
+            self.inputParameterParser = inputParameterParser
 
     def run(
         self,
@@ -142,8 +112,8 @@ class ApiTool(Tool):
         #Run the function to get required variables
         functionVariables = self.func()   
         if self.apiEndpoint is None:
-            if "apiEndpoint_" in functionVariables:
-                self.apiEndpoint = functionVariables["apiEndpoint_"]
+            if "apiEndpoint" in functionVariables:
+                self.apiEndpoint = functionVariables["apiEndpoint"]
             else:
                 raise IncorrectDefinitonError(f'''apiEndpoint is not provided in either the function or passed in during 
                                               instantiation. Please check the variable name and if it is passed in
@@ -151,22 +121,22 @@ class ApiTool(Tool):
         else:
             #Already populated warning
             pass
-        if "httpRequestType_" in functionVariables:
+        if "httpRequestType" in functionVariables:
             if self.httpRequestType is not None:
                 ##lready populated warning
                 pass
-            self.httpRequestType = functionVariables["httpRequestType_"]
-        if "httpParameters_" in functionVariables:
+            self.httpRequestType = functionVariables["httpRequestType"]
+        if "httpParameters" in functionVariables:
             if self.httpRequestType is not None:
                 #Already populated warning
                 pass
-            self.httpParameters = functionVariables["httpParameters_"]
+            self.httpParameters = functionVariables["httpParameters"]
 
         try:
             requestMethod = getattr(requests, self.httpRequestType)
             if not callable(requestMethod):
                 raise HttpRequestError(f'Invalid HTTP request method: {self.httpRequestType}')
-            inputParametersParsed = self.inputParameterParser(*args, **kwargs)
+            inputParametersParsed = self.inputParameterParser(self.inputParameterSchema[0], *args, **kwargs)
             response = requestMethod(self.apiEndpoint, **inputParametersParsed, **self.httpParameters)
             if self.outputParameterSchema is None:
                 return response.json()
@@ -179,13 +149,3 @@ class ApiTool(Tool):
                 return validatedOutput
         except requests.RequestException as e:
             raise HttpRequestError(f'Http request failed: {e}')
-    
-    def inputParameterParserFunc(
-        self,
-        *args,
-        **kwargs
-    ):
-        """Default parser for HTTP Requests. Since the default type is GET, the data gets places in params"""
-        return {
-            "params": (self.inputParameterSchema[0](*args, **kwargs)).model_dump()
-        }

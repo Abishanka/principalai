@@ -1,12 +1,12 @@
-from pydantic import BaseModel
+from typing import Any
 
-class Entity(BaseModel):
+class Entity():
     """Data entity. Present in input, output, messages and more"""
     def __init__(
         self, 
-        name_: str, 
-        description_: str, 
-        entitytype_: str
+        name: str, 
+        description: str, 
+        entitytype: Any
     ):
         '''
         Use the following conventions for name and description
@@ -23,6 +23,6 @@ class Entity(BaseModel):
         Ultimately, you have the freedom to skip out on the separated entity paradigm. However, using it will give you better 
         accuracy.
         '''
-        self.name: str = name_
-        self.description: str = description_,
-        self.entitytype = entitytype_
+        self.name: str = name
+        self.description: str = description,
+        self.entitytype: Any = entitytype
